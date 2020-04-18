@@ -5,6 +5,7 @@
     "openjdk-8-jdk",
     "python3-lxml",
     "mysql-server",
+    "maven",
     "unzip"
   ],
   "tomcat_systemd_service_name": "tomcat",

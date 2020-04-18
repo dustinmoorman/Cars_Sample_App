@@ -6,7 +6,7 @@
               type="javax.sql.DataSource" 
               username="root" 
               password="appdynam1cs"
-              driverClassName="com.mysql.jdbc.Driver"
+              driverClassName="com.mysql.cj.jdbc.Driver"
               url="jdbc:mysql://localhost:3306/supercars?useSSL=false"
               maxIdle="4" />
     <Resource name="jdbc/c3p0" 
@@ -18,7 +18,7 @@
               maxIdleTime="3000" 
               user="root" 
               password="appdynam1cs"
-              driverClass="com.mysql.jdbc.Driver"
+              driverClass="com.mysql.cj.jdbc.Driver"
               jdbcUrl="jdbc:mysql://localhost:3306/supercars?useSSL=false"
               />
 </Context>

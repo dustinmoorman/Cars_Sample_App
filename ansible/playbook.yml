@@ -87,7 +87,7 @@
 
     - name: Create MySQL init script
       shell: |
-        echo "create database if not exists instrumentdata;" > /tmp/init_db.sql
+        echo "create database if not exists supercars;" > /tmp/init_db.sql
         mysql -u root -p"{{ mysql_root_password }}" < /tmp/init_db.sql
       args:
         creates: /tmp/init_db.sql
@@ -357,6 +357,42 @@
     - name: Reload systemd
       systemd:
         daemon_reload: yes
+
+    - name: Create cars app directory
+      file:
+        path: "{{ cars_app_directory }}"
+        state: directory
+        mode: "0755"
+
+    - name: Checkout cars app repo
+      git:
+        repo: "{{ cars_app_repo }}"
+        dest: "{{ cars_app_directory }}"
+        force: yes
+
+    - name: Run maven install for cars app
+      ignore_errors: yes
+      shell: |
+        cd "{{ cars_app_directory }}"
+        mvn clean install
+
+    - name: Remove previously unpacked WAR
+      file:
+        path: "{{ tomcat_directory }}/latest/webapps/Cars_Sample_App"
+        state: absent
+
+    - name: Copy WAR to Tomcat webapps directory
+      copy:
+        src: "{{ cars_app_directory }}/target/Cars_Sample_App.war"
+        dest: "{{ tomcat_directory }}/latest/webapps/Cars_Sample_App.war"
+        remote_src: yes
+
+    - name: Run cars app MySQL script
+      shell: |
+        mysql -u root -p"{{ mysql_root_password }}" < "{{ cars_app_directory }}/src/main/resources/db/mysql.sql"
+        touch "{{ cars_app_directory }}/db.initialized"
+      args:
+        creates: "{{ cars_app_directory }}/db.initialized"
 
     - name: Start Tomcat service
       service:

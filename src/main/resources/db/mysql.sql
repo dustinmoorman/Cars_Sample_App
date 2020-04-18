@@ -1,4 +1,4 @@
-CREATE DATABASE supercars;
+CREATE DATABASE supercars IF NOT EXISTS;
 
 connect supercars;
 

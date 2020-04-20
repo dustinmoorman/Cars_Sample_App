@@ -5,8 +5,8 @@
               auth="Container"
               type="javax.sql.DataSource" 
               username="root" 
-              password="AppDynamics"
-              driverClassName="com.mysql.jdbc.Driver"
+              password="appdynam1cs"
+              driverClassName="com.mysql.cj.jdbc.Driver"
               url="jdbc:mysql://localhost:3306/supercars"
               maxActive="10" 
               maxIdle="4" />

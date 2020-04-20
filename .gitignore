@@ -1,1 +1,3 @@
 target/
+ansible/inventory.ini
+ansible/variables.json

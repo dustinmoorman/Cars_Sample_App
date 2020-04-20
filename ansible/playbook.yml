@@ -1,0 +1,425 @@
+---
+- hosts: tomcat
+  tasks:
+    - name: Set MySQL default password in debconf
+      shell: |
+        echo "mysql-server mysql-server/root_password password {{ mysql_root_password }}" | debconf-set-selections;
+        echo "mysql-server mysql-server/root_password_again password {{ mysql_root_password }}" | debconf-set-selections;
+
+    - name: Update apt-get repo and cache
+      apt: update_cache=yes force_apt_get=yes cache_valid_time=3600
+
+    - name: Upgrade all apt packages
+      apt: upgrade=dist force_apt_get=yes
+
+    - name: Install required packages
+      apt:
+        name: "{{ required_packages }}"
+        state: present
+
+    - name: Add Tomcat user
+      user:
+        name: tomcat
+        home: "{{ tomcat_directory }}"
+        system: yes
+
+    - name: Download & decompress Tomcat
+      unarchive:
+        src: "{{ tomcat_source }}/{{ tomcat_archive }}.tar.gz"
+        dest: "{{ tomcat_directory }}"
+        remote_src: yes
+
+    - name: Create symlink for latest Tomcat
+      file:
+        src: "{{ tomcat_directory }}/{{ tomcat_archive }}"
+        dest: "{{ tomcat_directory }}/latest"
+        state: link
+
+    - name: Set permissions on Tomcat directory
+      file:
+        dest: "{{ tomcat_directory }}"
+        owner: tomcat
+        group: tomcat
+        mode: "0755"
+        recurse: yes
+
+    - name: Set executable permissions for Tomcat
+      shell: |
+        bash -c 'chmod +x {{ tomcat_directory }}/latest/bin/*.sh'
+
+    - name: Configure Tomcat in systemd
+      shell: |
+        cat << EOF > "/lib/systemd/system/{{ tomcat_systemd_service_name }}.service"
+        [Unit]
+        Description=Tomcat 9 servlet container
+        After=network.target
+
+        [Service]
+        Type=forking
+        #User=tomcat
+        #Group=tomcat
+        Environment="JAVA_HOME=/usr/lib/jvm/java-1.8.0-openjdk-amd64"
+        Environment=CATALINA_PID=/opt/tomcat/latest/temp/tomcat.pid
+        Environment=CATALINA_HOME=/opt/tomcat/latest
+        Environment=CATALINA_BASE=/opt/tomcat/latest
+        Environment='CATALINA_OPTS=-Xms512M -Xmx1024M -server -XX:+UseParallelGC'
+        Environment='JAVA_OPTS=-Djava.awt.headless=true -Djava.security.egd=file:/dev/./urandom -javaagent:{{ java_agent_directory }}/{{ java_agent_version_directory }}/javaagent.jar -Dappdynamics.socket.collection.bci.enable=true'
+        UMask=0007
+        RestartSec=10
+        Restart=always
+        ExecStart={{ tomcat_directory }}/latest/bin/startup.sh
+        ExecStop={{ tomcat_directory }}/latest/bin/shutdown.sh
+
+        [Install]
+        WantedBy=multi-user.target
+        EOF
+      args:
+        creates: "/lib/systemd/system/{{ tomcat_systemd_service_name }}.service"
+
+    - name: Send MySQL JDBC driver to Tomcat Libs
+      copy:
+        src: "{{ mysql_jdbc_local_source }}"
+        dest: "{{ tomcat_directory }}/latest/lib/"
+        owner: tomcat
+        group: tomcat
+        mode: '0744'
+        force: yes
+
+    - name: Create MySQL init script
+      shell: |
+        echo "create database if not exists supercars;" > /tmp/init_db.sql
+        mysql -u root -p"{{ mysql_root_password }}" < /tmp/init_db.sql
+      args:
+        creates: /tmp/init_db.sql
+
+    - name: Restart MySQL service
+      service:
+        name: mysql
+        state: restarted
+        enabled: true
+
+    - name: Create AppDynamics Directory
+      file:
+        path: "{{ appdynamics_dir }}"
+        state: directory
+        mode: "0755"
+
+    - name: Create AppDynamics Java Agent Installer Directory
+      file:
+        path: "{{ java_agent_directory }}" 
+        state: directory
+        mode: "0755"
+
+    - name: Download & decompress AppDynamics Java Agent
+      unarchive:
+        src: "{{ java_agent_source }}"
+        dest: "{{ java_agent_directory }}"
+        remote_src: yes
+
+    - name: Create AppDynamics Agent Log Directory for node
+      file:
+        path: "{{ java_agent_directory }}/{{ java_agent_version_directory }}/logs/{{ node_name }}"
+        state: directory
+        mode: "0755"
+
+    - name: Write controller host to configuration file
+      xml:
+        path: "{{ java_agent_directory }}/{{ java_agent_version_directory }}/conf/controller-info.xml"
+        xpath: /controller-info/controller-host
+        value: "{{ controller_host }}"
+
+    - name: Write controller port to configuration file
+      xml:
+        path: "{{ java_agent_directory }}/{{ java_agent_version_directory }}/conf/controller-info.xml"
+        xpath: /controller-info/controller-port
+        value: "{{ controller_port }}"
+
+    - name: Write application name to configuration file
+      xml:
+        path: "{{ java_agent_directory }}/{{ java_agent_version_directory }}/conf/controller-info.xml"
+        xpath: /controller-info/application-name
+        value: "{{ application_name }}"
+
+    - name: Write tier name to configuration file
+      xml:
+        path: "{{ java_agent_directory }}/{{ java_agent_version_directory }}/conf/controller-info.xml"
+        xpath: /controller-info/tier-name
+        value: "{{ tier_name }}"
+
+    - name: Write node name to configuration file
+      xml:
+        path: "{{ java_agent_directory }}/{{ java_agent_version_directory }}/conf/controller-info.xml"
+        xpath: /controller-info/node-name
+        value: "{{ node_name }}"
+
+    - name: Write account name to configuration file
+      xml:
+        path: "{{ java_agent_directory }}/{{ java_agent_version_directory }}/conf/controller-info.xml"
+        xpath: /controller-info/account-name
+        value: "{{ account_name }}"
+
+    - name: Write account access key to configuration file
+      xml:
+        path: "{{ java_agent_directory }}/{{ java_agent_version_directory }}/conf/controller-info.xml"
+        xpath: /controller-info/account-access-key
+        value: "{{ account_access_key }}"
+
+    - name: Create Database Agent Directory
+      file:
+        path: "{{ database_agent_directory }}"
+        state: directory
+        mode: "0755"
+
+    - name: Download & decompress AppDynamics Database Agent
+      unarchive:
+        src: "{{ database_agent_source }}"
+        dest: "{{ database_agent_directory }}"
+        remote_src: yes
+
+    - name: Write controller host to Database Agent configuration file
+      xml:
+        path: "{{ database_agent_directory }}/conf/controller-info.xml"
+        xpath: /controller-info/controller-host
+        value: "{{ controller_host }}"
+
+    - name: Write controller port to Database Agent configuration file
+      xml:
+        path: "{{ database_agent_directory }}/conf/controller-info.xml"
+        xpath: /controller-info/controller-port
+        value: "{{ controller_port }}"
+
+    - name: Write application name to Database Agent configuration file
+      xml:
+        path: "{{ database_agent_directory }}/conf/controller-info.xml"
+        xpath: /controller-info/application-name
+        value: "{{ application_name }}"
+
+    - name: Write tier name to Database Agent configuration file
+      xml:
+        path: "{{ database_agent_directory }}/conf/controller-info.xml"
+        xpath: /controller-info/tier-name
+        value: "{{ tier_name }}"
+
+    - name: Write node name to Database Agent configuration file
+      xml:
+        path: "{{ database_agent_directory }}/conf/controller-info.xml"
+        xpath: /controller-info/node-name
+        value: "{{ node_name }}"
+
+    - name: Write account name to Database Agent configuration file
+      xml:
+        path: "{{ database_agent_directory }}/conf/controller-info.xml"
+        xpath: /controller-info/account-name
+        value: "{{ account_name }}"
+
+    - name: Write account access key to configuration file
+      xml:
+        path: "{{ database_agent_directory }}/conf/controller-info.xml"
+        xpath: /controller-info/account-access-key
+        value: "{{ account_access_key }}"
+
+    - name: Configure Db Agent for systemd
+      shell: |
+        cat << EOF > "/lib/systemd/system/{{ database_agent_systemd_service_name }}.service"
+        [Unit]
+        Description=AppDynamics DB Agent
+        
+        [Service]
+        ExecStart={{ database_agent_directory }}/start-dbagent
+        ExecReload=/bin/kill -HUP $MAINPID
+        KillMode=process
+        Restart=on-failure
+        RestartPreventExitStatus=255
+        
+        [Install]
+        WantedBy=multi-user.target
+        Alias={{ database_agent_systemd_service_name }}.service
+        EOF
+      args:
+        creates: "/lib/systemd/system/{{ database_agent_systemd_service_name }}.service"
+
+    - name: Create Machine Agent Directory
+      file:
+        path: "{{ machine_agent_directory }}"
+        state: directory
+        mode: "0755"
+
+    - name: Download & decompress AppDynamics Machine Agent
+      unarchive:
+        src: "{{ machine_agent_source }}"
+        dest: "{{ machine_agent_directory }}"
+        remote_src: yes
+
+    - name: Write controller host to Machine Agent configuration file
+      xml:
+        path: "{{ machine_agent_directory }}/conf/controller-info.xml"
+        xpath: /controller-info/controller-host
+        value: "{{ controller_host }}"
+
+    - name: Write controller port to Machine Agent configuration file
+      xml:
+        path: "{{ machine_agent_directory }}/conf/controller-info.xml"
+        xpath: /controller-info/controller-port
+        value: "{{ controller_port }}"
+
+    - name: Write application name to Machine Agent configuration file
+      xml:
+        path: "{{ machine_agent_directory }}/conf/controller-info.xml"
+        xpath: /controller-info/application-name
+        value: "{{ application_name }}"
+
+    - name: Write tier name to Machine Agent configuration file
+      xml:
+        path: "{{ machine_agent_directory }}/conf/controller-info.xml"
+        xpath: /controller-info/tier-name
+        value: "{{ tier_name }}"
+
+    - name: Write Server Visibility Monitoring setting to Machine Agent configuration file
+      xml:
+        path: "{{ machine_agent_directory }}/conf/controller-info.xml"
+        xpath: /controller-info/sim-enabled
+        value: "{{ server_visibility_enabled }}"
+
+    - name: Write account name to Machine Agent configuration file
+      xml:
+        path: "{{ machine_agent_directory }}/conf/controller-info.xml"
+        xpath: /controller-info/account-name
+        value: "{{ account_name }}"
+
+    - name: Write account access key to Java Agent configuration file
+      xml:
+        path: "{{ machine_agent_directory }}/conf/controller-info.xml"
+        xpath: /controller-info/account-access-key
+        value: "{{ account_access_key }}"
+
+    - name: Configure Machine Agent in systemd
+      shell: |
+        cat << EOF > "/lib/systemd/system/{{ machine_agent_systemd_service_name }}.service"
+        [Unit]
+        Description=AppDynamics Machine Agent
+
+        [Service]
+        ExecStart={{ machine_agent_directory }}/jre/bin/java -jar {{ machine_agent_directory }}/machineagent.jar
+        KillMode=control-group
+        Restart=on-failure
+        RestartPreventExitStatus=255
+        Type=simple
+        TimeoutSec=900
+
+        [Install]
+        WantedBy=multi-user.target
+        Alias={{ machine_agent_systemd_service_name}}.service
+        EOF
+      args:
+        creates: "/lib/systemd/system/{{ machine_agent_systemd_service_name }}.service"
+
+    - name: Create Network Agent Directory
+      file:
+        path: "{{ netviz_agent_directory }}"
+        state: directory
+        mode: "0755"
+
+    - name: Download & decompress AppDynamics Network Agent
+      unarchive:
+        src: "{{ netviz_agent_source }}"
+        dest: "{{ netviz_agent_directory }}"
+        remote_src: yes
+
+    - name: Install AppDynamics Network Agent
+      shell: |
+        bash -c "{{ netviz_agent_directory }}/install.sh"
+        touch "{{ netviz_agent_directory }}/netviz.installed"
+      args:
+        creates: "{{ netviz_agent_directory }}/netviz.installed"
+
+    - name: Configure Network Agent in systemd
+      shell: |
+        cat << EOF > "/lib/systemd/system/{{ netviz_agent_systemd_service_name }}.service"
+        [Unit]
+        Description=AppDynamics Network Agent
+        After=network.target
+
+        [Service]
+        ExecStart={{ netviz_agent_directory }}/bin/start.sh
+        KillMode=control-group
+        Restart=always
+        RestartPreventExitStatus=255
+        Type=forking
+        TimeoutSec=900
+
+        [Install]
+        WantedBy=multi-user.target
+        Alias={{ netviz_agent_systemd_service_name}}.service
+        EOF
+      args:
+        creates: "/lib/systemd/system/{{ netviz_agent_systemd_service_name }}.service"
+
+    - name: Reload systemd
+      systemd:
+        daemon_reload: yes
+
+    - name: Create cars app directory
+      file:
+        path: "{{ cars_app_directory }}"
+        state: directory
+        mode: "0755"
+
+    - name: Checkout cars app repo
+      git:
+        repo: "{{ cars_app_repo }}"
+        dest: "{{ cars_app_directory }}"
+        force: yes
+
+    - name: Checkout 1.0 Maintenance branch
+      shell: |
+        cd "{{ cars_app_directory }}"
+        git fetch
+        git checkout 1.0-MAINTENANCE
+
+    - name: Run maven install for cars app
+      ignore_errors: yes
+      shell: |
+        cd "{{ cars_app_directory }}"
+        mvn clean install
+
+    - name: Remove previously unpacked WAR
+      file:
+        path: "{{ tomcat_directory }}/latest/webapps/Cars_Sample_App"
+        state: absent
+
+    - name: Copy WAR to Tomcat webapps directory
+      copy:
+        src: "{{ cars_app_directory }}/target/Cars_Sample_App-1.0-SNAPSHOT.war"
+        dest: "{{ tomcat_directory }}/latest/webapps/Cars_Sample_App-1.0-SNAPSHOT.war"
+        remote_src: yes
+
+    - name: Run cars app MySQL script
+      shell: |
+        mysql -u root -p"{{ mysql_root_password }}" < "{{ cars_app_directory }}/src/main/resources/db/mysql.sql"
+        touch "{{ cars_app_directory }}/db.initialized"
+      args:
+        creates: "{{ cars_app_directory }}/db.initialized"
+
+    - name: Start Tomcat service
+      service:
+        name: "{{ tomcat_systemd_service_name }}"
+        enabled: true
+        state: restarted
+
+    - name: Start Machine Agent service
+      service:
+        name: "{{ machine_agent_systemd_service_name }}"
+        enabled: true
+        state: restarted
+
+    - name: Start Network Agent service
+      service:
+        name: "{{ netviz_agent_systemd_service_name }}"
+        enabled: true
+        state: restarted
+
+    - name: Start Database Agent service
+      service:
+        name: "{{ database_agent_systemd_service_name }}"
+        enabled: true
+        state: restarted

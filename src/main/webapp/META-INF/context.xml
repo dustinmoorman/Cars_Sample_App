@@ -7,7 +7,7 @@
               username="root" 
               password="appdynam1cs"
               driverClassName="com.mysql.jdbc.Driver"
-              url="jdbc:mysql://localhost:3306/supercars"
+              url="jdbc:mysql://dmoormandevelopmentlab-qux2vh7z.appd-sales.com:3306/supercars"
               maxActive="10" 
               maxIdle="4" />
 </Context>
